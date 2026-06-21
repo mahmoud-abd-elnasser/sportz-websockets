@@ -3,6 +3,7 @@ import {matchRouter} from "./routes/matches.js";
 import http from "http";
 import {attachWebSocketServer} from "./ws/server.js";
 import {securityMiddleware} from "./arcjet.js";
+import {commentaryRoutes} from "./routes/commentary.js";
 
 const rawPort = process.env.PORT;
 const PORT = rawPort ? Number.parseInt(rawPort, 10) : 8000;
@@ -22,9 +23,11 @@ app.get('/', (req, res) => {
 });
 
 app.use('/api/matches', matchRouter);
+app.use('/api/matches/:id/commentary', commentaryRoutes);
 
-const { broadcastMatchCreated } = attachWebSocketServer(server)
+const { broadcastMatchCreated, broadcastCommentary } = attachWebSocketServer(server)
 app.locals.broadcastMatchCreated = broadcastMatchCreated
+app.locals.broadcastCommentary = broadcastCommentary
 
 server.listen(PORT, HOST , () => {
     const baseURL = HOST === '0.0.0.0' ? `http://localhost:${PORT}` : `http://${HOST}:${PORT}`
