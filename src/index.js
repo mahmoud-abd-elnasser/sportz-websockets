@@ -2,6 +2,7 @@ import express from 'express';
 import {matchRouter} from "./routes/matches.js";
 import http from "http";
 import {attachWebSocketServer} from "./ws/server.js";
+import {securityMiddleware} from "./arcjet.js";
 
 const rawPort = process.env.PORT;
 const PORT = rawPort ? Number.parseInt(rawPort, 10) : 8000;
@@ -19,6 +20,7 @@ app.get('/', (req, res) => {
     res.json({ message: "Welcome to the Sportz API!" });
 });
 
+app.use(securityMiddleware())
 app.use('/api/matches', matchRouter);
 
 const { broadcastMatchCreated } = attachWebSocketServer(server)
