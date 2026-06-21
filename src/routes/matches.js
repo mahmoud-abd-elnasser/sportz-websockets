@@ -24,17 +24,18 @@ matchRouter.get('/', async (req, res) => {
         .limit(limit);
     res.status(200).json({ message: "Matches retrieved successfully", data:data });
     } catch (e) {
-        res.status(500).json({ message: "Failed to retrieve matches" , error: e.message });
+        console.error(e);
+        res.status(500).json({ message: "Failed to retrieve matches" });
     }
 });
 
 matchRouter.post('/', async (req, res) => {
     const parsed = createMatchSchema.safeParse(req.body)
-    const { startTime, endTime, homeScore, awayScore } = parsed.data;
     if (!parsed.success) {
         res.status(400).json({ message: "Invalid match data", errors: JSON.stringify(parsed.error) });
         return;
     }
+    const { startTime, endTime, homeScore, awayScore } = parsed.data;
     try {
     const [event] = await db.insert(matches).values({
         ...parsed.data,
@@ -47,6 +48,7 @@ matchRouter.post('/', async (req, res) => {
 
         res.status(201).json({ message: "Match created successfully", data:event })
     } catch (e) {
-        res.status(500).json({ message: "Internal server error" , error: e.message });
+        console.error(e);
+        res.status(500).json({ message: "Internal server error" });
     }
 });
