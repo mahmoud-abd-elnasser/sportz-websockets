@@ -3,7 +3,7 @@ import { matchIdParamSchema } from "../validation/matches.js";
 import { createCommentarySchema, listCommentaryQuerySchema } from "../validation/commentary.js";
 import { db } from "../db/db.js";
 import { commentary } from "../db/schema.js";
-import { sql, desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm"; // 💡 Imported 'eq'
 
 export const commentaryRoutes = Router({ mergeParams: true });
 
@@ -26,7 +26,7 @@ commentaryRoutes.get('/', async (req, res) => {
         const results = await db
             .select()
             .from(commentary)
-            .where(sql`${commentary.matchId} = ${paramParsed.data.id}`)
+            .where(eq(commentary.matchId, paramParsed.data.id)) // 💡 Cleaner, type-safe condition
             .orderBy(desc(commentary.createdAt))
             .limit(limit);
 
@@ -48,26 +48,50 @@ commentaryRoutes.post('/', async (req, res) => {
         return res.status(400).json({ message: "Invalid commentary data", errors: bodyParsed.error.format() });
     }
 
-    try {
-        // Fetch the current max sequence for this match to auto-increment it if not provided
-        let sequence = bodyParsed.data.sequence;
-        if (sequence === undefined) {
-            const lastCommentary = await db
-                .select({ sequence: commentary.sequence })
-                .from(commentary)
-                .where(sql`${commentary.matchId} = ${paramParsed.data.id}`)
-                .orderBy(desc(commentary.sequence))
-                .limit(1);
+    // 💡 Declare variable outside the loop scope so it's accessible later
+    let newCommentary = null;
+    let sequence = bodyParsed.data.sequence;
+    const maxRetries = 3;
 
-            sequence = lastCommentary.length > 0 ? lastCommentary[0].sequence + 1 : 1;
+    try {
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+                if (sequence === undefined) {
+                    const lastCommentary = await db
+                        .select({ sequence: commentary.sequence })
+                        .from(commentary)
+                        .where(eq(commentary.matchId, paramParsed.data.id)) // 💡 Changed to eq()
+                        .orderBy(desc(commentary.sequence))
+                        .limit(1);
+
+                    sequence = lastCommentary.length > 0 ? lastCommentary[0].sequence + 1 : 1;
+                }
+
+                // Assigned directly to our outer variable instead of a block-scoped const
+                const [inserted] = await db.insert(commentary).values({
+                    ...bodyParsed.data,
+                    matchId: paramParsed.data.id,
+                    sequence,
+                }).returning();
+
+                newCommentary = inserted;
+                break;
+            } catch (err) {
+                // Handle Postgres unique constraint violation error code '23505'
+                if (err.code === '23505' && attempt < maxRetries - 1) {
+                    sequence = undefined; // recalculate fresh sequence value on retry
+                    continue;
+                }
+                throw err;
+            }
         }
 
-        const [newCommentary] = await db.insert(commentary).values({
-            ...bodyParsed.data,
-            matchId: paramParsed.data.id,
-            sequence,
-        }).returning();
+        // Double check we actually successfully created a record before proceeding
+        if (!newCommentary) {
+            return res.status(500).json({ message: "Failed to generate sequence after multiple attempts" });
+        }
 
+        // Now safe from ReferenceErrors!
         if (res.app.locals.broadcastCommentary) {
             res.app.locals.broadcastCommentary(newCommentary.matchId, newCommentary);
         }
